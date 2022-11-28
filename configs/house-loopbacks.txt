@@ -1,0 +1,5 @@
+0 babe:cafe:0::1/64
+1 babe:cafe:1::1/64
+2 babe:cafe:2::1/64
+3 babe:cafe:3::1/64
+4 babe:cafe:4::1/64

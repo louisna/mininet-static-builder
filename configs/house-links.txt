@@ -1,0 +1,10 @@
+0 1 0 babe:cafe:dead:01::1/64 babe:cafe:1::1/64
+0 2 1 babe:cafe:dead:02::1/64 babe:cafe:2::1/64
+1 0 0 babe:cafe:dead:01::2/64 babe:cafe:0::1/64
+1 3 1 babe:cafe:dead:13::1/64 babe:cafe:3::1/64
+2 0 0 babe:cafe:dead:02::2/64 babe:cafe:0::1/64
+2 3 1 babe:cafe:dead:23::1/64 babe:cafe:3::1/64
+3 1 0 babe:cafe:dead:13::2/64 babe:cafe:1::1/64
+3 2 1 babe:cafe:dead:23::2/64 babe:cafe:2::1/64
+3 4 2 babe:cafe:dead:34::1/64 babe:cafe:4::1/64
+4 3 0 babe:cafe:dead:34::2/64 babe:cafe:3::1/64
