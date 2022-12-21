@@ -119,9 +119,9 @@ def simpleRun(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--loopbacks", type=str,
+    parser.add_argument("-l", "--loopbacks", type=str,
                         default="configs/topo-loopbacks.txt")
-    parser.add_argument("--links", type=str, default="configs/topo-links.txt")
-    parser.add_argument("--paths", type=str, default="configs/topo-paths.txt")
-    args = parser.parse_args()
+    parser.add_argument("-i", "--links", type=str, default="configs/topo-links.txt")
+    parser.add_argument("-p", "--paths", type=str, default="configs/topo-paths.txt")
+    args = parser.parse_args() 
     simpleRun(args)
