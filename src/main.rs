@@ -196,12 +196,21 @@ impl Graph {
                     source, output_itf, link_ip, destination_ip
                 )
                 .unwrap();
+
+                // Add the same path for each link local of the destination node.
+                for (&(_, dst), link) in links.iter().filter(|(&(src, _), _)| src == i) {
+                    if dst == source {
+                        continue;
+                    }
+                    writeln!(s, "{} {} {} {}/64", source, output_itf, link_ip, link).unwrap();
+                }
             }
-            let pathname = format!("{}-paths.txt", file_prefix);
-            let path = std::path::Path::new(directory).join(pathname);
-            let mut file = File::create(&path).unwrap();
-            file.write_all(s.as_bytes()).unwrap();
         }
+
+        let pathname = format!("{}-paths.txt", file_prefix);
+        let path = std::path::Path::new(directory).join(pathname);
+        let mut file = File::create(&path).unwrap();
+        file.write_all(s.as_bytes()).unwrap();
 
         Ok(())
     }
