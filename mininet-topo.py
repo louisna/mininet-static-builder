@@ -40,6 +40,7 @@ class MyAutoTopo(Topo):
 
 def simpleRun(args):
     ipv4 = args.ipv4
+    print("USE IPV4", ipv4)
 
     args_dict = {
         "loopbacks": args.loopbacks,

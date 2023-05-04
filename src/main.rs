@@ -111,7 +111,7 @@ impl Graph {
         let mut s = String::new();
         for i in 0..nb_nodes {
             let lo = if ipv4 {
-                format!("10.0.{}.1/24", i)
+                format!("11.0.{}.1/32", i)
             } else {
                 format!("babe:cafe:{:x}::1/64", i)
             };
@@ -124,14 +124,14 @@ impl Graph {
         file.write_all(s.as_bytes()).unwrap();
 
         let prefix_length = if ipv4 {
-            24
+            30
         } else {
-            32
+            64
         };
 
         // Set the links.
         let mut s = String::new();
-        let base_link = if ipv4 {"10.1"} else {"babe:cafe:dead"};
+        let base_link = if ipv4 {"11.1"} else {"babe:cafe:dead"};
         let mut links = HashMap::new();
         for i in 0..nb_nodes {
             let node_a = &topo[i];
@@ -183,6 +183,11 @@ impl Graph {
         file.write_all(s.as_bytes()).unwrap();
 
         // Finally all the paths must be statically added for each router.
+        let prefix_length = if ipv4 {
+            32
+        } else {
+            64
+        };
         let mut s = String::new();
         for source in 0..nb_nodes {
             let predecessors = dijkstra(&successors, &source).unwrap();
@@ -223,7 +228,7 @@ impl Graph {
                     if dst == source {
                         continue;
                     }
-                    writeln!(s, "{} {} {} {}/64", source, output_itf, link_ip, link).unwrap();
+                    writeln!(s, "{} {} {} {}/{}", source, output_itf, link_ip, link, prefix_length).unwrap();
                 }
             }
         }
