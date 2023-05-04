@@ -39,6 +39,8 @@ class MyAutoTopo(Topo):
 
 
 def simpleRun(args):
+    ipv4 = args.ipv4
+
     args_dict = {
         "loopbacks": args.loopbacks,
         "links": args.links,
@@ -59,7 +61,10 @@ def simpleRun(args):
             if len(loopback_info) == 0:
                 continue
             id1, loopback = loopback_info.split(" ")
-            cmd = f"ip -6 addr add {loopback} dev lo"
+            if ipv4:
+                cmd = f"ip addr add {loopback} dev lo"
+            else:
+                cmd = f"ip -6 addr add {loopback} dev lo"
             loopbacks[id1] = loopback[:-3]
             print(cmd)
             net[id1].cmd(cmd)
@@ -89,16 +94,20 @@ def simpleRun(args):
 
             cmd = f"sysctl net.ipv4.{id1}-eth{itf}.ip_forward=1"
             net[id1].cmd(cmd)
-            cmd = f"ip -6 addr add {link} dev {id1}-eth{itf}"
+            if ipv4:
+                cmd = f"ip addr add {link} dev {id1}-eth{itf}"
+            else:
+                cmd = f"ip -6 addr add {link} dev {id1}-eth{itf}"
             print(id1, cmd)
             net[id1].cmd(cmd)
 
             # Start a tcpdump capture for each interface
             # From https://stackoverflow.com/questions/43765117/how-to-check-existence-of-a-folder-and-then-remove-it
-            if os.path.exists(PCAP_DIR) and os.path.isdir(PCAP_DIR):
-                shutil.rmtree(PCAP_DIR)
-            os.makedirs(PCAP_DIR)
-            net[id1].cmd(f"tcpdump -i {id1}-eth{itf} -w {id1}-{itf}.pcap &")
+            if args.traces:
+                if os.path.exists(PCAP_DIR) and os.path.isdir(PCAP_DIR):
+                    shutil.rmtree(PCAP_DIR)
+                os.makedirs(PCAP_DIR)
+                net[id1].cmd(f"tcpdump -i {id1}-eth{itf} -w {id1}-{itf}.pcap &")
 
     with open(args_dict["paths"]) as fd:
         txt = fd.read().split("\n")
@@ -106,7 +115,10 @@ def simpleRun(args):
             if len(path_info) == 0:
                 continue
             id1, itf, link, loopback = path_info.split(" ")
-            cmd = f"ip -6 route add {loopback} via {link}"
+            if ipv4:
+                cmd = f"ip route add {loopback} via {link}"
+            else:
+                cmd = f"ip -6 route add {loopback} via {link}"
             print(id1, cmd)
             net[id1].cmd(cmd)
 
@@ -123,5 +135,7 @@ if __name__ == "__main__":
                         default="configs/topo-loopbacks.txt")
     parser.add_argument("-i", "--links", type=str, default="configs/topo-links.txt")
     parser.add_argument("-p", "--paths", type=str, default="configs/topo-paths.txt")
+    parser.add_argument("-t", "--traces", action="store_true", help="Activate tracing with tcpdump")
+    parser.add_argument("--ipv4", action="store_true", help="Indicates that the scripts use IPv4 instead of IPv6")
     args = parser.parse_args() 
     simpleRun(args)

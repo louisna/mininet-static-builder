@@ -22,11 +22,20 @@ type Result<T> = std::result::Result<T, Error>;
 #[derive(Parser)]
 struct Args {
     /// Topology NTF-like file.
-    #[clap(short = 'f', long = "topo-file", value_parser)]
+    #[clap(value_parser)]
     topo_file: String,
+
     /// Path containing the output files.
     #[clap(short = 'd', long = "directory", value_parser)]
     directory: String,
+
+    /// Use IPv4 instead of IPv6.
+    #[clap(long = "ipv4")]
+    ipv4: bool,
+
+    /// Add a multicast path from the specified source.
+    #[clap(short = 'm', long = "multicast", value_parser)]
+    multicast: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -92,7 +101,7 @@ impl Graph {
             .collect()
     }
 
-    fn get_mininet_config(&self, directory: &str, file_prefix: &str) -> Result<()> {
+    fn get_mininet_config(&self, directory: &str, file_prefix: &str, ipv4: bool) -> Result<()> {
         let nb_nodes = self.nodes.len();
         let topo = &self.nodes;
         let successors = self.get_neighbours();
@@ -101,7 +110,11 @@ impl Graph {
         let mut loopbacks = HashMap::new();
         let mut s = String::new();
         for i in 0..nb_nodes {
-            let lo = format!("babe:cafe:{:x}::1/64", i);
+            let lo = if ipv4 {
+                format!("10.0.{}.1/24", i)
+            } else {
+                format!("babe:cafe:{:x}::1/64", i)
+            };
             writeln!(s, "{} {}", i, lo).unwrap();
             loopbacks.insert(i, lo);
         }
@@ -110,9 +123,15 @@ impl Graph {
         let mut file = File::create(&path).unwrap();
         file.write_all(s.as_bytes()).unwrap();
 
+        let prefix_length = if ipv4 {
+            24
+        } else {
+            32
+        };
+
         // Set the links.
         let mut s = String::new();
-        let base_link = "babe:cafe:dead";
+        let base_link = if ipv4 {"10.1"} else {"babe:cafe:dead"};
         let mut links = HashMap::new();
         for i in 0..nb_nodes {
             let node_a = &topo[i];
@@ -128,26 +147,28 @@ impl Graph {
                         .unwrap();
                     writeln!(
                         s,
-                        "{} {} {} {}/64 {}",
+                        "{} {} {} {}/{} {}",
                         id_a,
                         *j,
                         jj,
                         link_a_b,
+                        prefix_length,
                         loopbacks.get(&(id_b as usize)).unwrap()
                     )
                     .unwrap();
                     continue;
                 }
-                let link_a_b = format!("{}:{:x}{:x}::1", base_link, id_a, id_b);
-                let link_b_a = format!("{}:{:x}{:x}::2", base_link, id_a, id_b);
-
+                let link_a_b = if ipv4 {format!("{}.{}.1", base_link, id_a * nb_nodes + id_b)} else {format!("{}:{:x}{:x}::1", base_link, id_a, id_b)};
+                let link_b_a = if ipv4 {format!("{}.{}.2", base_link, id_a * nb_nodes + id_b)} else {format!("{}:{:x}{:x}::2", base_link, id_a, id_b)};
+                
                 writeln!(
                     s,
-                    "{} {} {} {}/64 {}",
+                    "{} {} {} {}/{} {}",
                     id_a,
                     *j,
                     jj,
                     link_a_b,
+                    prefix_length,
                     loopbacks.get(&(id_b as usize)).unwrap()
                 )
                 .unwrap();
@@ -256,5 +277,5 @@ fn main() {
     let graph = Graph::from_file(&args.topo_file).unwrap();
     let path = std::path::Path::new(&args.topo_file);
     let filename = path.file_stem().unwrap().to_str().unwrap();
-    graph.get_mininet_config(&args.directory, filename).unwrap();
+    graph.get_mininet_config(&args.directory, filename, args.ipv4).unwrap();
 }
