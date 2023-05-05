@@ -11,10 +11,15 @@ use std::io::{BufRead, BufReader};
 mod dijkstra;
 use dijkstra::dijkstra;
 
+type McAddr = Vec<(usize, String)>;
+
 #[derive(Debug)]
 enum Error {
     /// Impossible to parse the file to crate a topo.
     FileParse,
+
+    /// Missing node.
+    MissingNone,
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -34,6 +39,7 @@ struct Args {
     ipv4: bool,
 
     /// Add a multicast path from the specified source.
+    /// Is assumed to follow the `ipv4` flag.
     #[clap(short = 'm', long = "multicast", value_parser)]
     multicast: Option<String>,
 }
@@ -47,6 +53,7 @@ struct Node {
 
 struct Graph {
     nodes: Vec<Node>,
+    node2id: HashMap<String, usize>,
 }
 
 impl Graph {
@@ -91,7 +98,7 @@ impl Graph {
             nodes[b_id].neighbours.push((a_id, metric));
         }
 
-        Ok(Graph { nodes })
+        Ok(Graph { nodes, node2id })
     }
 
     fn get_neighbours(&self) -> Vec<Vec<(usize, i32)>> {
@@ -101,7 +108,13 @@ impl Graph {
             .collect()
     }
 
-    fn get_mininet_config(&self, directory: &str, file_prefix: &str, ipv4: bool) -> Result<()> {
+    fn get_mininet_config(
+        &self,
+        directory: &str,
+        file_prefix: &str,
+        ipv4: bool,
+        mc_addrs: Option<McAddr>,
+    ) -> Result<()> {
         let nb_nodes = self.nodes.len();
         let topo = &self.nodes;
         let successors = self.get_neighbours();
@@ -158,9 +171,17 @@ impl Graph {
                     .unwrap();
                     continue;
                 }
-                let link_a_b = if ipv4 {format!("{}.{}.1", base_link, id_a * nb_nodes + id_b)} else {format!("{}:{:x}{:x}::1", base_link, id_a, id_b)};
-                let link_b_a = if ipv4 {format!("{}.{}.2", base_link, id_a * nb_nodes + id_b)} else {format!("{}:{:x}{:x}::2", base_link, id_a, id_b)};
-                
+                let link_a_b = if ipv4 {
+                    format!("{}.{}.1", base_link, id_a * nb_nodes + id_b)
+                } else {
+                    format!("{}:{:x}{:x}::1", base_link, id_a, id_b)
+                };
+                let link_b_a = if ipv4 {
+                    format!("{}.{}.2", base_link, id_a * nb_nodes + id_b)
+                } else {
+                    format!("{}:{:x}{:x}::2", base_link, id_a, id_b)
+                };
+
                 writeln!(
                     s,
                     "{} {} {} {}/{} {}",
@@ -238,6 +259,39 @@ impl Graph {
         let mut file = File::create(&path).unwrap();
         file.write_all(s.as_bytes()).unwrap();
 
+        // Multicast routes to be installed.
+        if let Some(mc_addrs) = mc_addrs.as_ref() {
+            let mut s = String::new();
+            for (source, mc_addr) in mc_addrs {
+                let predecessors = dijkstra(&successors, source).unwrap();
+                for (next_hop, nodes) in predecessors.iter() {
+                    if *next_hop == nodes[0] {
+                        continue;
+                    }
+                    // Do not do ECMP for multicast.
+                    // Hope that this will work.
+                    let node = topo.get(*nodes[0]).unwrap();
+                    let output_itf = node.neighbours.iter().position(|&(r, _)| r == **next_hop).unwrap();
+                    let link_ip = links.get(&(node.id, **next_hop)).unwrap();
+                    writeln!(
+                        s,
+                        "{} {} {} {}/{}",
+                        node.id,
+                        output_itf,
+                        link_ip,
+                        mc_addr,
+                        prefix_length
+                    ).unwrap();
+                }
+                
+            }
+            let pathname = format!("{}-multicast-paths.txt", file_prefix);
+            let path = std::path::Path::new(directory).join(pathname);
+            let mut file = File::create(&path).unwrap();
+            file.write_all(s.as_bytes()).unwrap();
+        }
+
+
         Ok(())
     }
 }
@@ -275,12 +329,35 @@ fn get_all_out_interfaces_to_destination(
     out
 }
 
+fn get_mc_addrs(filename: &str, graph: &Graph) -> Result<McAddr> {
+    let mut out = McAddr::new();
+
+    let file = std::fs::File::open(filename).map_err(|_| Error::FileParse)?;
+    let reader = BufReader::new(file);
+
+    for line in reader.lines() {
+        let line = line.unwrap();
+        let split: Vec<_> = line.split(' ').collect();
+        let id: usize = *graph.node2id.get(split[0]).ok_or(Error::MissingNone)?;
+        out.push((id, split[1].to_string()));
+    }
+
+    Ok(out)
+}
+
 fn main() {
     env_logger::init();
     let args = Args::parse();
 
     let graph = Graph::from_file(&args.topo_file).unwrap();
+    let mc_addrs = if let Some(file) = args.multicast.as_ref() {
+        Some(get_mc_addrs(file, &graph).unwrap())
+    } else {
+        None
+    };
     let path = std::path::Path::new(&args.topo_file);
     let filename = path.file_stem().unwrap().to_str().unwrap();
-    graph.get_mininet_config(&args.directory, filename, args.ipv4).unwrap();
+    graph
+        .get_mininet_config(&args.directory, filename, args.ipv4, mc_addrs)
+        .unwrap();
 }

@@ -45,7 +45,8 @@ def simpleRun(args):
     args_dict = {
         "loopbacks": args.loopbacks,
         "links": args.links,
-        "paths": args.paths
+        "paths": args.paths,
+        "multicast-paths": args.multicast,
     }
     topo = MyAutoTopo(**args_dict)
     net = Mininet(topo=topo, controller=OVSController)
@@ -110,19 +111,21 @@ def simpleRun(args):
                 os.makedirs(PCAP_DIR)
                 net[id1].cmd(f"tcpdump -i {id1}-eth{itf} -w {id1}-{itf}.pcap &")
 
-    with open(args_dict["paths"]) as fd:
-        txt = fd.read().split("\n")
-        for path_info in txt:
-            if len(path_info) == 0:
-                continue
-            id1, itf, link, loopback = path_info.split(" ")
-            if ipv4:
-                cmd = f"ip route add {loopback} via {link}"
-            else:
-                cmd = f"ip -6 route add {loopback} via {link}"
-            print(id1, cmd)
-            net[id1].cmd(cmd)
-
+    for key in ["paths", "multicast-paths"]:
+        if args_dict[key] is None: continue  # In case `multicast-paths` is empty.
+        with open(args_dict[key]) as fd:
+            txt = fd.read().split("\n")
+            for path_info in txt:
+                if len(path_info) == 0:
+                    continue
+                id1, itf, link, loopback = path_info.split(" ")
+                if ipv4:
+                    cmd = f"ip route add {loopback} via {link}"
+                else:
+                    cmd = f"ip -6 route add {loopback} via {link}"
+                print(id1, cmd)
+                net[id1].cmd(cmd)
+    
     # Make your own emulation here
     # ...
 
@@ -138,5 +141,6 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--paths", type=str, default="configs/topo-paths.txt")
     parser.add_argument("-t", "--traces", action="store_true", help="Activate tracing with tcpdump")
     parser.add_argument("--ipv4", action="store_true", help="Indicates that the scripts use IPv4 instead of IPv6")
+    parser.add_argument("-m", "--multicast", help="Add multicast routes in the given path", default=None)
     args = parser.parse_args() 
     simpleRun(args)
