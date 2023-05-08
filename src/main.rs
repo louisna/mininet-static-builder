@@ -2,7 +2,7 @@
 extern crate log;
 
 use clap::Parser;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::Write as fmtWrite;
 use std::fs::File;
 use std::hash::Hash;
@@ -20,6 +20,9 @@ enum Error {
 
     /// Missing node.
     MissingNone,
+
+    /// Too many multicast addresses.
+    TooManyMcAddrs,
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -40,6 +43,7 @@ struct Args {
 
     /// Add a multicast path from the specified source.
     /// Is assumed to follow the `ipv4` flag.
+    /// Currently only supports a single multicast address.
     #[clap(short = 'm', long = "multicast", value_parser)]
     multicast: Option<String>,
 }
@@ -136,15 +140,11 @@ impl Graph {
         let mut file = File::create(&path).unwrap();
         file.write_all(s.as_bytes()).unwrap();
 
-        let prefix_length = if ipv4 {
-            30
-        } else {
-            64
-        };
+        let prefix_length = if ipv4 { 30 } else { 64 };
 
         // Set the links.
         let mut s = String::new();
-        let base_link = if ipv4 {"11.1"} else {"babe:cafe:dead"};
+        let base_link = if ipv4 { "11.1" } else { "babe:cafe:dead" };
         let mut links = HashMap::new();
         for i in 0..nb_nodes {
             let node_a = &topo[i];
@@ -204,11 +204,7 @@ impl Graph {
         file.write_all(s.as_bytes()).unwrap();
 
         // Finally all the paths must be statically added for each router.
-        let prefix_length = if ipv4 {
-            32
-        } else {
-            64
-        };
+        let prefix_length = if ipv4 { 32 } else { 64 };
         let mut s = String::new();
         for source in 0..nb_nodes {
             let predecessors = dijkstra(&successors, &source).unwrap();
@@ -249,7 +245,12 @@ impl Graph {
                     if dst == source {
                         continue;
                     }
-                    writeln!(s, "{} {} {} {}/{}", source, output_itf, link_ip, link, prefix_length).unwrap();
+                    writeln!(
+                        s,
+                        "{} {} {} {}/{}",
+                        source, output_itf, link_ip, link, prefix_length
+                    )
+                    .unwrap();
                 }
             }
         }
@@ -264,33 +265,28 @@ impl Graph {
             let mut s = String::new();
             for (source, mc_addr) in mc_addrs {
                 let predecessors = dijkstra(&successors, source).unwrap();
-                for (next_hop, nodes) in predecessors.iter() {
-                    if *next_hop == nodes[0] {
+                println!("predecessors is {:?}", predecessors);
+                for node_id in 0..nb_nodes {
+                    if node_id == *source {
                         continue;
                     }
-                    // Do not do ECMP for multicast.
-                    // Hope that this will work.
-                    let node = topo.get(*nodes[0]).unwrap();
-                    let output_itf = node.neighbours.iter().position(|&(r, _)| r == **next_hop).unwrap();
-                    let link_ip = links.get(&(node.id, **next_hop)).unwrap();
-                    writeln!(
-                        s,
-                        "{} {} {} {}/{}",
-                        node.id,
-                        output_itf,
-                        link_ip,
-                        mc_addr,
-                        prefix_length
-                    ).unwrap();
+                    let node = topo.get(node_id).unwrap();
+                    let in_itf = node.neighbours.iter().position(|(r, _)| r == predecessors.get(&node_id).unwrap()[0]).unwrap();
+                    let successors = get_successors(&predecessors, node_id);
+                    let intfs = successors.iter().map(|succ| node.neighbours.iter().position(|(r, _)| r == succ).unwrap()).fold(String::new(), |string, itf| format!("{} {}", string, itf).to_string());
+                    if !successors.is_empty() {
+                        writeln!(s,
+                        "{} {} {}/{} {}",
+                        node_id, in_itf, mc_addr, prefix_length, intfs,
+                    ).unwrap()
+                    }
                 }
-                
             }
             let pathname = format!("{}-multicast-paths.txt", file_prefix);
             let path = std::path::Path::new(directory).join(pathname);
             let mut file = File::create(&path).unwrap();
             file.write_all(s.as_bytes()).unwrap();
         }
-
 
         Ok(())
     }
@@ -342,7 +338,19 @@ fn get_mc_addrs(filename: &str, graph: &Graph) -> Result<McAddr> {
         out.push((id, split[1].to_string()));
     }
 
+    if out.len() > 1 {
+        return Err(Error::TooManyMcAddrs);
+    }
+
     Ok(out)
+}
+
+fn get_successors(predecessors: &HashMap<&usize, Vec<&usize>>, node: usize) -> HashSet<usize> {
+    predecessors
+        .iter()
+        .filter(|(_, preds)| preds.contains(&&node))
+        .map(|(k, _)| **k)
+        .collect()
 }
 
 fn main() {

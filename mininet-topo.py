@@ -10,6 +10,7 @@ import shutil
 
 
 PCAP_DIR = "pcaps"
+MC_TABLE_NAME = "smcroute"
 
 
 class MyAutoTopo(Topo):
@@ -111,20 +112,40 @@ def simpleRun(args):
                 os.makedirs(PCAP_DIR)
                 net[id1].cmd(f"tcpdump -i {id1}-eth{itf} -w {id1}-{itf}.pcap &")
 
-    for key in ["paths", "multicast-paths"]:
-        if args_dict[key] is None: continue  # In case `multicast-paths` is empty.
-        with open(args_dict[key]) as fd:
-            txt = fd.read().split("\n")
-            for path_info in txt:
-                if len(path_info) == 0:
-                    continue
-                id1, itf, link, loopback = path_info.split(" ")
-                if ipv4:
-                    cmd = f"ip route add {loopback} via {link}"
-                else:
-                    cmd = f"ip -6 route add {loopback} via {link}"
-                print(id1, cmd)
-                net[id1].cmd(cmd)
+    with open(args_dict["paths"]) as fd:
+        txt = fd.read().split("\n")
+        for path_info in txt:
+            if len(path_info) == 0:
+                continue
+            id1, itf, link, loopback = path_info.split(" ")
+            if ipv4:
+                cmd = f"ip route add {loopback} via {link}"
+            else:
+                cmd = f"ip -6 route add {loopback} via {link}"
+            print(id1, cmd)
+            net[id1].cmd(cmd)
+    
+    # Install multicast routes.
+    # First, create a multicast routing table on each node.
+    for node_id in range(nb_nodes):
+        cmd = f"smcrouted -l debug -I {MC_TABLE_NAME}"
+        print(node_id, cmd)
+        net[str(node_id)].cmd(cmd)
+    
+    # Add the multicast route for each entry of the file.
+    with open(args_dict["multicast-paths"]) as fd:
+        txt = fd.read().split("\n")
+        for path_info in txt:
+            if len(path_info) == 0:
+                continue
+            tab = path_info.split(" ")
+            node_id, in_itf, mc_group, out_itf = tab[0], tab[1], tab[2], tab[3:]
+            out_itf_txt = ""
+            for itf_idx in out_itf:
+                out_itf_txt += f"{node_id}-eth{itf_idx}"
+            cmd = f"smcroutectl -I {MC_TABLE_NAME} add {node_id}-eth{in_itf} {mc_group.split('/')[0]} {out_itf_txt}"
+            print(node_id, cmd)
+            net[node_id].cmd(cmd)
     
     # Make your own emulation here
     # ...
